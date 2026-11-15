@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tapınak Muhafızı</title>
+<style>
+  :root { --gold:#e8b84a; --ink:#2a1a0c; --parch:#f3e6c8; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#140d07; color:var(--parch); font-family: Georgia, "Times New Roman", serif; overflow:hidden; user-select:none; }
+  canvas { display:block; }
+  .ov { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(20,12,5,.72); z-index:5; padding:16px; }
+  .ov.hidden { display:none; }
+  .panel { background:linear-gradient(#f3e6c8,#e2cc9c); color:var(--ink); border:4px double #8a5a1f; border-radius:10px; padding:28px 32px; max-width:760px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,.6); text-align:center; max-height:100%; overflow:auto; }
+  h1 { margin:0 0 4px; font-size:44px; letter-spacing:3px; color:#7a2a12; text-shadow:0 2px 0 #f8edd0; }
+  h2 { margin:0 0 10px; color:#7a2a12; }
+  .meander { height:12px; margin:10px auto 16px; width:80%; background:repeating-linear-gradient(90deg,#8a5a1f 0 6px,transparent 6px 12px); border-top:3px solid #8a5a1f; border-bottom:3px solid #8a5a1f; }
+  p { line-height:1.5; margin:8px 0; }
+  .controls { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; text-align:left; margin:14px auto; max-width:420px; font-size:15px; }
+  kbd { background:#2a1a0c; color:var(--parch); border-radius:4px; padding:1px 7px; font-family:inherit; font-size:13px; white-space:nowrap; }
+  button { font-family:inherit; cursor:pointer; }
+  .big { background:#7a2a12; color:#f8edd0; border:2px solid #4a160a; border-radius:6px; font-size:20px; padding:10px 34px; margin-top:12px; letter-spacing:1px; }
+  .big:hover { background:#922f13; }
+  #items { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; margin:14px 0; }
+  .item { background:#fbf3df; border:2px solid #b08a4a; border-radius:8px; padding:10px; text-align:left; color:var(--ink); }
+  .item:hover:not(:disabled) { border-color:#7a2a12; background:#fff8e6; }
+  .item:disabled { opacity:.45; cursor:not-allowed; }
+  .item b { display:block; font-size:16px; color:#7a2a12; }
+  .item small { display:block; margin:3px 0 6px; font-size:13px; }
+  .item .row { display:flex; justify-content:space-between; font-size:13px; }
+  .cost { color:#8a5a1f; font-weight:bold; }
+  .goldline { font-size:20px; font-weight:bold; color:#8a5a1f; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="menu" class="ov">
+  <div class="panel">
+    <h1>TAPINAK MUHAFIZI</h1>
+    <div class="meander"></div>
+    <p>Ege kıyısında küçük bir şehir devleti. Kuzeyden gelen barbar akıncıları, şehrin kalbindeki <b>Athena Tapınağı</b>'nı yağmalamak için yola çıktı.</p>
+    <p>Sen son hoplitsin. Tapınağın kutsal ateşini söndürmelerine izin verme.</p>
+    <div class="controls">
+      <span><kbd>W A S D</kbd></span><span>Hareket</span>
+      <span><kbd>Fare / Sol Tık</kbd></span><span>Nişan al ve mızrak fırlat (basılı tut)</span>
+      <span><kbd>Boşluk</kbd></span><span>Atılma (kısa süre yenilmezlik)</span>
+      <span><kbd>Q</kbd></span><span>Zeus'un Yıldırımı (imleç noktasına)</span>
+      <span><kbd>P / Esc</kbd></span><span>Duraklat</span>
+    </div>
+    <p style="font-size:14px">Düşmanların düşürdüğü <b>drahmileri</b> topla, dalgalar arasında agorada güçlen.</p>
+    <button class="big" id="startBtn">Savaşa Başla</button>
+  </div>
+</div>
+
+<div id="shop" class="ov hidden">
+  <div class="panel">
+    <h2 id="shopTitle">Agora</h2>
+    <div class="goldline" id="shopGold"></div>
+    <div id="items"></div>
+    <button class="big" id="nextBtn">Sonraki Dalga ⚔</button>
+  </div>
+</div>
+
+<div id="over" class="ov hidden">
+  <div class="panel">
+    <h1 id="overTitle">Tapınak Düştü</h1>
+    <div class="meander"></div>
+    <p id="overText"></p>
+    <button class="big" id="againBtn">Yeniden Dene</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const W = 1280, H = 720;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let scale = 1, offX = 0, offY = 0, dpr = 1;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+  cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
+  scale = Math.min(innerWidth / W, innerHeight / H);
+  offX = (innerWidth - W * scale) / 2; offY = (innerHeight - H * scale) / 2;
+}
+addEventListener('resize', resize); resize();
+
+// ---------- helpers ----------
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function mulberry(s) { return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function circle(c, x, y, r) { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
+function ellipse(c, x, y, rx, ry, rot = 0) { c.beginPath(); c.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); c.fill(); }
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+
+// ---------- sound ----------
+let AC = null;
+function initAudio() { if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } }
+function snd(f, d = 0.1, type = 'square', v = 0.04, slide = 0) {
+  if (!AC) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, f + slide), t + d);
+  g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g).connect(AC.destination); o.start(t); o.stop(t + d);
+}
+function noise(d = 0.4, v = 0.15) {
+  if (!AC) return;
+  const len = AC.sampleRate * d, buf = AC.createBuffer(1, len, AC.sampleRate), data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
+  const s = AC.createBufferSource(), g = AC.createGain(); g.gain.value = v;
+  s.buffer = buf; s.connect(g).connect(AC.destination); s.start();
+}
+
+// ---------- background (pre-rendered) ----------
+const TEMPLE = { x: 570, y: 295, w: 140, h: 120 };
+const bg = document.createElement('canvas'); bg.width = W * 2; bg.height = H * 2;
+(function drawBg() {
+  const b = bg.getContext('2d'); b.scale(2, 2); const R = mulberry(7);
+  const g = b.createRadialGradient(640, 360, 80, 640, 360, 820);
+  g.addColorStop(0, '#e6d09a'); g.addColorStop(1, '#a98c55');
+  b.fillStyle = g; b.fillRect(0, 0, W, H);
+  for (let i = 0; i < 500; i++) {
+    const s = R() < .5 ? 'rgba(120,90,40,0.07)' : 'rgba(255,240,200,0.08)';
+    b.fillStyle = s; ellipse(b, R() * W, R() * H, 10 + R() * 50, 6 + R() * 25, R() * 3);
+  }
+  // roads
+  b.lineCap = 'round';
+  b.strokeStyle = 'rgba(244,230,192,0.6)'; b.lineWidth = 64;
+  [[640, -40], [640, H + 40], [-40, 355], [W + 40, 355]].forEach(([x, y]) => { b.beginPath(); b.moveTo(640, 355); b.lineTo(x, y); b.stroke(); });
+  b.strokeStyle = 'rgba(150,120,70,0.18)'; b.lineWidth = 2; b.setLineDash([3, 9]);
+  [[640, -40], [640, H + 40], [-40, 355], [W + 40, 355]].forEach(([x, y]) => { b.beginPath(); b.moveTo(640, 355); b.lineTo(x, y); b.stroke(); });
+  b.setLineDash([]);
+  // paved plaza around temple
+  b.fillStyle = '#d9caa4'; b.fillRect(TEMPLE.x - 60, TEMPLE.y - 55, TEMPLE.w + 120, TEMPLE.h + 110);
+  b.strokeStyle = 'rgba(120,100,60,0.35)'; b.lineWidth = 1;
+  for (let x = TEMPLE.x - 60; x <= TEMPLE.x + TEMPLE.w + 60; x += 20) { b.beginPath(); b.moveTo(x, TEMPLE.y - 55); b.lineTo(x, TEMPLE.y + TEMPLE.h + 55); b.stroke(); }
+  for (let y = TEMPLE.y - 55; y <= TEMPLE.y + TEMPLE.h + 55; y += 20) { b.beginPath(); b.moveTo(TEMPLE.x - 60, y); b.lineTo(TEMPLE.x + TEMPLE.w + 60, y); b.stroke(); }
+  b.strokeStyle = '#a8916a'; b.lineWidth = 3; b.strokeRect(TEMPLE.x - 60, TEMPLE.y - 55, TEMPLE.w + 120, TEMPLE.h + 110);
+  // grass tufts
+  for (let i = 0; i < 260; i++) {
+    const x = R() * W, y = R() * H;
+    if (Math.abs(x - 640) < 230 && Math.abs(y - 355) < 160) continue;
+    b.strokeStyle = `rgba(${90 + R() * 40},${110 + R() * 30},50,0.7)`; b.lineWidth = 1.5;
+    for (let k = 0; k < 4; k++) { b.beginPath(); b.moveTo(x, y); b.lineTo(x + (R() - .5) * 10, y - 5 - R() * 7); b.stroke(); }
+  }
+  // stones
+  for (let i = 0; i < 70; i++) {
+    const x = R() * W, y = R() * H;
+    if (Math.abs(x - 640) < 230 && Math.abs(y - 355) < 160) continue;
+    b.fillStyle = 'rgba(0,0,0,0.15)'; ellipse(b, x + 2, y + 3, 6 + R() * 4, 4, 0);
+    b.fillStyle = `hsl(35,${10 + R() * 10}%,${55 + R() * 15}%)`; ellipse(b, x, y, 5 + R() * 5, 3 + R() * 3, R() * 3);
+  }
+  // broken columns
+  [[260, 170], [1010, 560], [980, 140], [300, 590]].forEach(([x, y]) => {
+    b.fillStyle = 'rgba(0,0,0,0.2)'; ellipse(b, x + 4, y + 5, 16, 10);
+    b.fillStyle = '#ece3cf'; circle(b, x, y, 13);
+    b.strokeStyle = '#b9ad94'; b.lineWidth = 1;
+    for (let a = 0; a < 12; a++) { b.beginPath(); b.moveTo(x, y); b.lineTo(x + Math.cos(a / 12 * 6.28) * 13, y + Math.sin(a / 12 * 6.28) * 13); b.stroke(); }
+    b.fillStyle = '#e2d8c0'; b.save(); b.translate(x + 28, y + 10); b.rotate(0.5); b.fillRect(-18, -8, 36, 16); b.restore();
+  });
+  // olive trees
+  const trees = [];
+  for (let i = 0; i < 46; i++) {
+    const x = R() * W, y = R() * H;
+    const edge = x < 170 || x > W - 170 || y < 110 || y > H - 110;
+    const onRoad = Math.abs(x - 640) < 60 || Math.abs(y - 355) < 60;
+    if (!edge || onRoad) continue;
+    trees.push([x, y, 18 + R() * 14]);
+  }
+  trees.sort((a, b2) => a[1] - b2[1]).forEach(([x, y, r]) => {
+    b.fillStyle = 'rgba(30,40,10,0.28)'; ellipse(b, x + 8, y + 10, r * 1.1, r * 0.75);
+    b.fillStyle = '#6b5236'; b.fillRect(x - 2, y, 4, 10);
+    for (let k = 0; k < 7; k++) {
+      b.fillStyle = k % 2 ? '#6f7d42' : '#58693a';
+      circle(b, x + (R() - .5) * r, y - 4 + (R() - .5) * r * 0.8, r * (0.45 + R() * 0.25));
+    }
+    b.fillStyle = 'rgba(220,230,170,0.25)'; circle(b, x - r * 0.25, y - r * 0.35, r * 0.3);
+  });
+  // vignette
+  const v = b.createRadialGradient(640, 360, 380, 640, 360, 820);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(30,15,0,0.45)');
+  b.fillStyle = v; b.fillRect(0, 0, W, H);
+})();
+
+// ---------- input ----------
+const keys = {};
+const mouse = { x: 640, y: 360, down: false };
+addEventListener('keydown', e => {
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (state === 'play' || state === 'paused') {
+    if (e.code === 'KeyP' || e.code === 'Escape') { state = state === 'play' ? 'paused' : 'play'; mouse.down = false; }
+  }
+  if (state === 'play') {
+    if (e.code === 'Space') tryDash();
+    if (e.code === 'KeyQ') castBolt();
+  }
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.down = false; if (state === 'play') state = 'paused'; });
+function toWorld(e) { mouse.x = (e.clientX - offX) / scale; mouse.y = (e.clientY - offY) / scale; }
+cv.addEventListener('mousemove', toWorld);
+cv.addEventListener('mousedown', e => { toWorld(e); initAudio(); if (e.button === 0) mouse.down = true; });
+addEventListener('mouseup', () => { mouse.down = false; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---------- game state ----------
+let state = 'menu';
+let P, T, enemies, spears, arrows, parts, coins, texts, wave, toSpawn, spawnT, gold, score, clearT, banner, shake, boltFx, lvl, time;
+
+const ET = {
+  warrior: { r: 13, hp: 28, sp: 78, dmg: 8, gold: 3, rate: 1.0, name: 'Akıncı' },
+  archer:  { r: 12, hp: 18, sp: 62, dmg: 7, gold: 4, rate: 2.2, range: 290, name: 'Okçu' },
+  brute:   { r: 21, hp: 110, sp: 46, dmg: 18, gold: 10, rate: 1.4, name: 'Dev' },
+  chief:   { r: 29, hp: 460, sp: 58, dmg: 26, gold: 60, rate: 1.2, name: 'Savaş Ağası' },
+};
+
+const UPGRADES = [
+  { id: 'dmg',    name: 'Bronz Uç',             desc: 'Mızrak hasarı +6',               base: 25, grow: .6,  max: 10, apply: () => P.dmg += 6 },
+  { id: 'rate',   name: 'Çevik El',             desc: 'Atış hızı +%15',                 base: 30, grow: .6,  max: 8,  apply: () => P.rate *= 0.85 },
+  { id: 'multi',  name: 'Mızrak Yağmuru',       desc: 'Her atışta +1 mızrak',           base: 60, grow: .8,  max: 4,  apply: () => P.multi++ },
+  { id: 'pierce', name: 'Delici Mızrak',        desc: 'Mızrak +1 düşmanı deler',         base: 50, grow: .8,  max: 3,  apply: () => P.pierce++ },
+  { id: 'speed',  name: 'Hermes\'in Sandaletleri', desc: 'Hareket hızı +20',            base: 20, grow: .5,  max: 6,  apply: () => P.speed += 20 },
+  { id: 'hp',     name: 'Ares\'in Zırhı',       desc: 'Azami can +25 ve canı doldurur', base: 30, grow: .5,  max: 8,  apply: () => { P.maxHp += 25; P.hp = P.maxHp; } },
+  { id: 'repair', name: 'Tapınağı Onar',        desc: 'Tapınak +150 can',               base: 25, grow: .25, max: 99, apply: () => T.hp = Math.min(T.maxHp, T.hp + 150) },
+  { id: 'wall',   name: 'Mermer Sütunlar',      desc: 'Tapınak azami canı +100',        base: 45, grow: .6,  max: 5,  apply: () => { T.maxHp += 100; T.hp += 100; } },
+  { id: 'bolt',   name: 'Zeus\'un Yıldırımı',   desc: '+1 yıldırım hakkı (Q)',          base: 40, grow: .35, max: 99, apply: () => P.bolts++ },
+];
+const costOf = u => Math.round(u.base * (1 + (lvl[u.id] || 0) * u.grow));
+
+function newGame() {
+  P = { x: 640, y: 470, r: 15, hp: 100, maxHp: 100, speed: 210, dmg: 14, rate: 0.42, multi: 1, pierce: 0,
+        cd: 0, dashCd: 0, dashT: 0, dx: 0, dy: 1, inv: 0, bolts: 1, ang: -Math.PI / 2, walk: 0 };
+  T = { ...TEMPLE, hp: 400, maxHp: 400 };
+  enemies = []; spears = []; arrows = []; parts = []; coins = []; texts = [];
+  wave = 0; gold = 0; score = 0; lvl = {}; shake = 0; boltFx = null; time = 0;
+  startWave();
+}
+
+function buildWave(n) {
+  const list = [], count = 4 + n * 3;
+  for (let i = 0; i < count; i++) {
+    const r = Math.random();
+    let t = 'warrior';
+    if (n >= 2 && r < 0.28) t = 'archer';
+    else if (n >= 3 && r > 0.86 - Math.min(0.12, n * 0.01)) t = 'brute';
+    list.push(t);
+  }
+  if (n % 5 === 0) { for (let i = 0; i < n / 5; i++) list.splice(Math.floor(list.length / 2), 0, 'chief'); }
+  return list;
+}
+
+function startWave() {
+  wave++;
+  toSpawn = buildWave(wave); spawnT = 1.2; clearT = null;
+  banner = { text: 'Dalga ' + wave, sub: wave % 5 === 0 ? 'Savaş Ağası geliyor!' : '', t: 2.6 };
+  state = 'play';
+  hide('shop'); hide('menu'); hide('over');
+  snd(220, 0.5, 'sawtooth', 0.04, 110);
+}
+
+function spawnEnemy(type) {
+  const d = ET[type], side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) { x = rnd(0, W); y = -30; }
+  else if (side === 1) { x = W + 30; y = rnd(0, H); }
+  else if (side === 2) { x = rnd(0, W); y = H + 30; }
+  else { x = -30; y = rnd(0, H); }
+  const m = 1 + (wave - 1) * 0.13;
+  enemies.push({ type, x, y, r: d.r, hp: d.hp * m, maxHp: d.hp * m, sp: d.sp * (1 + wave * 0.015),
+    dmg: d.dmg * (1 + (wave - 1) * 0.08), rate: d.rate, atk: d.rate * Math.random(), flash: 0, kx: 0, ky: 0,
+    anim: Math.random() * 6, face: 0, lunge: 0 });
+}
+
+// ---------- actions ----------
+function tryDash() {
+  if (P.dashCd > 0) return;
+  let dx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  let dy = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
+  if (!dx && !dy) { dx = Math.cos(P.ang); dy = Math.sin(P.ang); }
+  const l = Math.hypot(dx, dy); P.dx = dx / l; P.dy = dy / l;
+  P.dashT = 0.16; P.inv = Math.max(P.inv, 0.3); P.dashCd = 1.1;
+  for (let i = 0; i < 10; i++) parts.push({ x: P.x, y: P.y, vx: rnd(-60, 60), vy: rnd(-60, 60), life: .4, max: .4, c: '#e9d6a6', s: rnd(3, 6) });
+  snd(500, 0.12, 'triangle', 0.04, -300);
+}
+
+function castBolt() {
+  if (P.bolts <= 0) { addText(P.x, P.y - 30, 'Yıldırım yok!', '#ddd'); return; }
+  P.bolts--;
+  const x = mouse.x, y = mouse.y, R = 170, dmg = 90 + wave * 9;
+  const pts = []; let px = x + rnd(-60, 60), py = -20;
+  while (py < y) { pts.push([px, py]); py += rnd(25, 55); px += rnd(-35, 35); px += (x - px) * 0.15; }
+  pts.push([x, y]);
+  boltFx = { x, y, R, t: 0.45, pts };
+  shake = 16;
+  for (const e of enemies) if (Math.hypot(e.x - x, e.y - y) < R + e.r) damageEnemy(e, dmg, (e.x - x), (e.y - y), 400);
+  for (let i = 0; i < 40; i++) { const a = rnd(0, 6.28), s = rnd(80, 420); parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: .5, max: .5, c: i % 2 ? '#fff6b0' : '#9fd8ff', s: rnd(2, 5) }); }
+  noise(0.7, 0.25); snd(90, 0.6, 'sawtooth', 0.06, -50);
+}
+
+function damageEnemy(e, dmg, kx, ky, kp = 160) {
+  e.hp -= dmg; e.flash = 0.1;
+  const l = Math.hypot(kx, ky) || 1, weight = e.type === 'chief' ? 0.25 : e.type === 'brute' ? 0.5 : 1;
+  e.kx += kx / l * kp * weight; e.ky += ky / l * kp * weight;
+  addText(e.x, e.y - e.r - 6, Math.round(dmg), '#fff1c2');
+  for (let i = 0; i < 6; i++) parts.push({ x: e.x, y: e.y, vx: rnd(-120, 120), vy: rnd(-120, 120), life: .35, max: .35, c: '#9b1d1d', s: rnd(2, 4) });
+  snd(180 + Math.random() * 60, 0.06, 'square', 0.03);
+}
+
+function hurtPlayer(d) {
+  if (P.inv > 0) return;
+  P.hp -= d; P.inv = 0.5; shake = Math.max(shake, 7);
+  addText(P.x, P.y - 26, '-' + Math.round(d), '#ff8a7a');
+  snd(120, 0.15, 'sawtooth', 0.05, -60);
+}
+
+function addText(x, y, text, c) { texts.push({ x, y, text, c, life: 0.8 }); }
+
+function rectClosest(o) { return { x: clamp(o.x, T.x, T.x + T.w), y: clamp(o.y, T.y, T.y + T.h) }; }
+function rectDist(o) { const c = rectClosest(o); return Math.hypot(o.x - c.x, o.y - c.y); }
+function rectPush(o) {
+  const c = rectClosest(o), dx = o.x - c.x, dy = o.y - c.y, d = Math.hypot(dx, dy);
+  if (d === 0) { // inside: push to nearest edge
+    const opts = [[o.x - T.x, -1, 0], [T.x + T.w - o.x, 1, 0], [o.y - T.y, 0, -1], [T.y + T.h - o.y, 0, 1]].sort((a, b) => a[0] - b[0])[0];
+    o.x += opts[1] * (opts[0] + o.r); o.y += opts[2] * (opts[0] + o.r); return;
+  }
+  if (d < o.r) { o.x = c.x + dx / d * o.r; o.y = c.y + dy / d * o.r; }
+}
+
+// ---------- update ----------
+function update(dt) {
+  time += dt;
+  if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
+  shake = Math.max(0, shake - dt * 30);
+  if (boltFx) { boltFx.t -= dt; if (boltFx.t <= 0) boltFx = null; }
+
+  // player
+  P.cd -= dt; P.dashCd -= dt; P.inv -= dt;
+  let mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  let my = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
+  if (P.dashT > 0) {
+    P.dashT -= dt; P.x += P.dx * 760 * dt; P.y += P.dy * 760 * dt;
+    if (Math.random() < .6) parts.push({ x: P.x, y: P.y, vx: 0, vy: 0, life: .25, max: .25, c: 'rgba(200,60,40,.6)', s: P.r * .8 });
+  } else if (mx || my) {
+    const l = Math.hypot(mx, my); P.x += mx / l * P.speed * dt; P.y += my / l * P.speed * dt; P.walk += dt * 12;
+  }
+  P.x = clamp(P.x, P.r, W - P.r); P.y = clamp(P.y, P.r, H - P.r);
+  rectPush(P);
+  P.ang = Math.atan2(mouse.y - P.y, mouse.x - P.x);
+
+  if (mouse.down && P.cd <= 0) {
+    P.cd = P.rate;
+    const spread = 0.13;
+    for (let i = 0; i < P.multi; i++) {
+      const a = P.ang + (i - (P.multi - 1) / 2) * spread;
+      spears.push({ x: P.x + Math.cos(a) * 18, y: P.y + Math.sin(a) * 18, vx: Math.cos(a) * 680, vy: Math.sin(a) * 680, a, life: 1.1, pierce: P.pierce, hit: new Set() });
+    }
+    snd(700, 0.07, 'triangle', 0.03, -400);
+  }
+
+  // spawning
+  if (toSpawn.length) {
+    spawnT -= dt;
+    if (spawnT <= 0) { spawnEnemy(toSpawn.shift()); spawnT = Math.max(0.3, 1.35 - wave * 0.08) * rnd(0.6, 1.3); }
+  }
+
+  // spears
+  for (const s of spears) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+    for (const e of enemies) {
+      if (e.hp <= 0 || s.hit.has(e)) continue;
+      if (Math.hypot(e.x - s.x, e.y - s.y) < e.r + 4) {
+        s.hit.add(e); damageEnemy(e, P.dmg, s.vx, s.vy);
+        if (s.pierce-- <= 0) { s.life = 0; break; }
+      }
+    }
+    if (s.x < -50 || s.x > W + 50 || s.y < -50 || s.y > H + 50) s.life = 0;
+  }
+  spears = spears.filter(s => s.life > 0);
+
+  // enemies
+  const tc = { x: T.x + T.w / 2, y: T.y + T.h / 2 };
+  for (const e of enemies) {
+    e.flash -= dt; e.lunge = Math.max(0, e.lunge - dt);
+    const dp = dist(e, P);
+    let tx, ty, onPlayer;
+    if (e.type === 'archer' || dp < (e.type === 'chief' ? 260 : 170)) { tx = P.x; ty = P.y; onPlayer = true; }
+    else { tx = tc.x; ty = tc.y; onPlayer = false; }
+    let inRange;
+    if (e.type === 'archer') inRange = dp < ET.archer.range && e.x > 0 && e.x < W && e.y > 0 && e.y < H;
+    else if (onPlayer) inRange = dp < e.r + P.r + 6;
+    else inRange = rectDist(e) < e.r + 6;
+    e.face = Math.atan2(ty - e.y, tx - e.x);
+    if (!inRange) { e.x += Math.cos(e.face) * e.sp * dt; e.y += Math.sin(e.face) * e.sp * dt; e.anim += dt * 10; }
+    e.atk -= dt;
+    if (inRange && e.atk <= 0) {
+      e.atk = e.rate; e.lunge = 0.15;
+      if (e.type === 'archer') {
+        const a = Math.atan2(P.y - e.y, P.x - e.x) + rnd(-0.06, 0.06);
+        arrows.push({ x: e.x, y: e.y, vx: Math.cos(a) * 390, vy: Math.sin(a) * 390, a, life: 2, dmg: e.dmg });
+        snd(900, 0.05, 'sine', 0.02, -500);
+      } else if (onPlayer) hurtPlayer(e.dmg);
+      else {
+        T.hp -= e.dmg; shake = Math.max(shake, 2);
+        const c = rectClosest(e);
+        for (let i = 0; i < 5; i++) parts.push({ x: c.x, y: c.y, vx: rnd(-90, 90), vy: rnd(-90, 90), life: .45, max: .45, c: '#efe6d2', s: rnd(2, 4) });
+        snd(90, 0.08, 'square', 0.03);
+      }
+    }
+    const kd = Math.pow(0.0005, dt);
+    e.x += e.kx * dt; e.y += e.ky * dt; e.kx *= kd; e.ky *= kd;
+    rectPush(e);
+  }
+  // separation
+  for (let i = 0; i < enemies.length; i++) for (let j = i + 1; j < enemies.length; j++) {
+    const a = enemies[i], b = enemies[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), m = a.r + b.r;
+    if (d > 0 && d < m) {
+      const p = (m - d), wa = b.r / m, wb = a.r / m;
+      a.x -= dx / d * p * wa; a.y -= dy / d * p * wa; b.x += dx / d * p * wb; b.y += dy / d * p * wb;
+    }
+  }
+  // deaths
+  for (const e of enemies) if (e.hp <= 0) {
+    score += ET[e.type].gold;
+    const n = e.type === 'chief' ? 6 : 1, val = e.type === 'chief' ? 10 : ET[e.type].gold;
+    for (let i = 0; i < n; i++) coins.push({ x: e.x + rnd(-15, 15), y: e.y + rnd(-15, 15), val, life: 14, bob: Math.random() * 6 });
+    for (let i = 0; i < 14; i++) parts.push({ x: e.x, y: e.y, vx: rnd(-150, 150), vy: rnd(-150, 150), life: .6, max: .6, c: i % 3 ? '#7a1616' : '#5a4630', s: rnd(2, 5) });
+    if (e.type === 'chief') { shake = 14; banner = { text: 'Savaş Ağası düştü!', sub: '', t: 2 }; noise(0.5, 0.15); }
+    snd(140, 0.2, 'sawtooth', 0.04, -90);
+  }
+  enemies = enemies.filter(e => e.hp > 0);
+
+  // arrows
+  for (const a of arrows) {
+    a.x += a.vx * dt; a.y += a.vy * dt; a.life -= dt;
+    if (a.x > T.x && a.x < T.x + T.w && a.y > T.y && a.y < T.y + T.h) { a.life = 0; continue; }
+    if (Math.hypot(a.x - P.x, a.y - P.y) < P.r + 3) { hurtPlayer(a.dmg); a.life = 0; }
+  }
+  arrows = arrows.filter(a => a.life > 0);
+
+  // coins
+  for (const c of coins) {
+    c.life -= dt; c.bob += dt * 5;
+    const d = dist(c, P);
+    if (d < 130) { c.x += (P.x - c.x) / d * 420 * dt; c.y += (P.y - c.y) / d * 420 * dt; }
+    if (d < P.r + 8) { gold += c.val; c.life = 0; addText(P.x, P.y - 24, '+' + c.val, '#ffd34d'); snd(1200, 0.06, 'sine', 0.03, 400); }
+  }
+  coins = coins.filter(c => c.life > 0);
+
+  // temple fire / smoke
+  if (Math.random() < 0.5) parts.push({ x: tc.x + rnd(-5, 5), y: tc.y + rnd(-3, 3), vx: rnd(-8, 8), vy: rnd(-50, -25), life: .6, max: .6, c: Math.random() < .5 ? '#ffb43a' : '#ff6a1f', s: rnd(2, 5), fire: true });
+  if (T.hp / T.maxHp < 0.4 && Math.random() < 0.3) parts.push({ x: rnd(T.x, T.x + T.w), y: rnd(T.y, T.y + T.h), vx: rnd(-10, 10), vy: rnd(-40, -20), life: 1.4, max: 1.4, c: 'rgba(60,50,40,.5)', s: rnd(6, 12) });
+
+  for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= p.fire ? 0.99 : 0.92; p.life -= dt; }
+  parts = parts.filter(p => p.life > 0);
+  if (parts.length > 900) parts.splice(0, parts.length - 900);
+  for (const t of texts) { t.y -= 40 * dt; t.life -= dt; }
+  texts = texts.filter(t => t.life > 0);
+
+  // end conditions
+  if (P.hp <= 0 || T.hp <= 0) { gameOver(); return; }
+  if (!toSpawn.length && !enemies.length) {
+    if (clearT === null) {
+      clearT = 1.8;
+      const bonus = 10 + wave * 5; gold += bonus;
+      P.hp = Math.min(P.maxHp, P.hp + P.maxHp * 0.25);
+      banner = { text: 'Dalga temizlendi!', sub: '+' + bonus + ' drahmi ödül', t: 1.8 };
+      snd(523, 0.15, 'triangle', 0.05); setTimeout(() => snd(659, 0.15, 'triangle', 0.05), 150); setTimeout(() => snd(784, 0.3, 'triangle', 0.05), 300);
+    } else {
+      clearT -= dt;
+      if (clearT <= 0) { for (const c of coins) gold += c.val; coins = []; openShop(); }
+    }
+  }
+}
+
+// ---------- drawing ----------
+function drawTemple() {
+  const { x, y, w, h } = T, ratio = T.hp / T.maxHp;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x + 8, y + 10, w, h);
+  // steps
+  for (let i = 0; i < 3; i++) { ctx.fillStyle = ['#cfc2a6', '#ddd2b8', '#eae1cc'][i]; ctx.fillRect(x - 12 + i * 6, y - 12 + i * 6, w + 24 - i * 12, h + 24 - i * 12); }
+  // floor
+  ctx.fillStyle = '#f2ebda'; ctx.fillRect(x + 6, y + 6, w - 12, h - 12);
+  // cella
+  ctx.fillStyle = '#d8ccb0'; ctx.fillRect(x + 28, y + 26, w - 56, h - 52);
+  ctx.strokeStyle = '#b3a283'; ctx.lineWidth = 2; ctx.strokeRect(x + 28, y + 26, w - 56, h - 52);
+  // altar
+  const cx = x + w / 2, cy = y + h / 2;
+  ctx.fillStyle = '#8d7d60'; ctx.fillRect(cx - 12, cy - 9, 24, 18);
+  ctx.fillStyle = '#5a4a35'; ctx.fillRect(cx - 8, cy - 6, 16, 12);
+  const fl = 6 + Math.sin(time * 14) * 1.5;
+  ctx.fillStyle = 'rgba(255,170,60,0.35)'; circle(ctx, cx, cy, fl * 2.4);
+  ctx.fillStyle = '#ffcf5a'; circle(ctx, cx, cy, fl);
+  // columns
+  const cols = [];
+  for (let i = 0; i < 6; i++) { const px = x + 14 + i * (w - 28) / 5; cols.push([px, y + 13], [px, y + h - 13]); }
+  for (let i = 1; i < 4; i++) { const py = y + 13 + i * (h - 26) / 4; cols.push([x + 14, py], [x + w - 14, py]); }
+  cols.forEach(([px, py], i) => {
+    const broken = ratio < 0.25 && i % 3 === 0 || ratio < 0.55 && i % 7 === 0;
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; circle(ctx, px + 2, py + 3, 8);
+    ctx.fillStyle = broken ? '#bdb29a' : '#fbf7ee'; circle(ctx, px, py, 7.5);
+    ctx.strokeStyle = '#c4b799'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(px, py, 7.5, 0, 6.29); ctx.stroke();
+    if (!broken) { ctx.fillStyle = '#e9e1cf'; circle(ctx, px, py, 3.5); }
+  });
+  // cracks
+  ctx.strokeStyle = 'rgba(70,50,30,0.6)'; ctx.lineWidth = 1.5;
+  const R = mulberry(3), cracks = Math.floor((1 - ratio) * 10);
+  for (let i = 0; i < cracks; i++) {
+    let px = x + R() * w, py = y + R() * h; ctx.beginPath(); ctx.moveTo(px, py);
+    for (let k = 0; k < 4; k++) { px += (R() - .5) * 22; py += (R() - .5) * 22; ctx.lineTo(px, py); }
+    ctx.stroke();
+  }
+}
+
+function drawPlayer() {
+  ctx.save(); ctx.translate(P.x, P.y);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ellipse(ctx, 2, P.r * 0.7, P.r * 1.1, P.r * 0.5);
+  if (P.inv > 0 && Math.floor(P.inv * 20) % 2) ctx.globalAlpha = 0.5;
+  ctx.rotate(P.ang);
+  const step = Math.sin(P.walk) * 3;
+  // legs
+  ctx.fillStyle = '#b5885a'; circle(ctx, -2 + step, 7, 4); circle(ctx, -2 - step, -7, 4);
+  // cloak
+  ctx.fillStyle = '#a3241c'; ellipse(ctx, -6, 0, 10, 15);
+  // cuirass
+  ctx.fillStyle = '#c99a45'; ellipse(ctx, 0, 0, 10, 13);
+  ctx.strokeStyle = '#8a6224'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(0, 0, 10, 13, 0, 0, 6.29); ctx.stroke();
+  // spear (right hand)
+  const pull = P.cd > P.rate * 0.6 ? -6 : 0;
+  ctx.strokeStyle = '#6e4a26'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-14 + pull, 11); ctx.lineTo(28 + pull, 11); ctx.stroke();
+  ctx.fillStyle = '#d6a64a'; ctx.beginPath(); ctx.moveTo(28 + pull, 8); ctx.lineTo(38 + pull, 11); ctx.lineTo(28 + pull, 14); ctx.fill();
+  // shield (aspis) on left
+  ctx.fillStyle = '#b8862b'; circle(ctx, 6, -12, 11);
+  ctx.strokeStyle = '#7d5718'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(6, -12, 11, 0, 6.29); ctx.stroke();
+  ctx.fillStyle = '#8f1e18'; circle(ctx, 6, -12, 5);
+  ctx.fillStyle = '#f0d58a'; circle(ctx, 6, -12, 1.8);
+  // helmet
+  ctx.fillStyle = '#d2a548'; circle(ctx, 1, 0, 7.5);
+  ctx.fillStyle = '#c62a22'; ellipse(ctx, -1, 0, 11, 2.8);
+  ctx.fillStyle = '#2a1a0c'; ctx.fillRect(5, -1, 3, 2);
+  ctx.restore();
+}
+
+function drawEnemy(e) {
+  ctx.save(); ctx.translate(e.x, e.y);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ellipse(ctx, 2, e.r * 0.7, e.r * 1.1, e.r * 0.5);
+  ctx.rotate(e.face);
+  const s = e.r / 13, step = Math.sin(e.anim) * 3 * s, lg = e.lunge > 0 ? 5 * s : 0;
+  const fl = e.flash > 0;
+  ctx.fillStyle = fl ? '#fff' : '#7d5c3b'; circle(ctx, -2 + step, 6 * s, 3.5 * s); circle(ctx, -2 - step, -6 * s, 3.5 * s);
+  if (e.type === 'warrior') {
+    ctx.fillStyle = fl ? '#fff' : '#5b6b3a'; ellipse(ctx, 0, 0, 10, 12);
+    ctx.fillStyle = '#9aa0a6'; ctx.fillRect(6 + lg, 6, 14, 3);
+    ctx.fillStyle = fl ? '#fff' : '#6b4527'; circle(ctx, 2, -10, 6); // small wooden shield
+    ctx.fillStyle = '#e0b48a'; circle(ctx, 1, 0, 6);
+    ctx.fillStyle = '#8a6a3a'; ctx.beginPath(); ctx.arc(1, 0, 6, Math.PI * 0.6, Math.PI * 1.4); ctx.fill(); // hair
+    ctx.fillStyle = '#ddd2bb'; ctx.beginPath(); ctx.moveTo(-2, -5); ctx.lineTo(-6, -11); ctx.lineTo(1, -6); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-2, 5); ctx.lineTo(-6, 11); ctx.lineTo(1, 6); ctx.fill(); // horns
+  } else if (e.type === 'archer') {
+    ctx.fillStyle = fl ? '#fff' : '#3f5b6b'; ellipse(ctx, 0, 0, 9, 11);
+    ctx.strokeStyle = '#6b4527'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(4, 0, 12, -1.1, 1.1); ctx.stroke();
+    ctx.strokeStyle = '#ddd'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(4 + 12 * Math.cos(-1.1), 12 * Math.sin(-1.1)); ctx.lineTo(e.lunge > 0 ? 2 : -2, 0); ctx.lineTo(4 + 12 * Math.cos(1.1), 12 * Math.sin(1.1)); ctx.stroke();
+    ctx.fillStyle = '#e0b48a'; circle(ctx, 0, 0, 5.5);
+    ctx.fillStyle = '#2f4a3a'; ctx.beginPath(); ctx.arc(0, 0, 6, Math.PI * 0.5, Math.PI * 1.5); ctx.fill(); // hood
+  } else if (e.type === 'brute') {
+    ctx.fillStyle = fl ? '#fff' : '#6b3a2e'; ellipse(ctx, 0, 0, 17, 20);
+    ctx.fillStyle = fl ? '#fff' : '#8b6a4a'; ellipse(ctx, -4, 0, 10, 18); // fur
+    ctx.strokeStyle = '#4a2f1a'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(6, 14); ctx.lineTo(28 + lg, 16); ctx.stroke();
+    ctx.fillStyle = '#4a2f1a'; circle(ctx, 28 + lg, 16, 6); // club
+    ctx.fillStyle = '#d9a982'; circle(ctx, 3, 0, 9);
+    ctx.fillStyle = '#5a3a20'; ctx.beginPath(); ctx.arc(3, 0, 9, Math.PI * 0.55, Math.PI * 1.45); ctx.fill();
+  } else if (e.type === 'chief') {
+    ctx.fillStyle = fl ? '#fff' : '#5a1020'; ellipse(ctx, -6, 0, 22, 28); // cloak
+    ctx.fillStyle = fl ? '#fff' : '#4a4a52'; ellipse(ctx, 0, 0, 17, 21); // mail
+    ctx.fillStyle = '#b0b4ba'; ctx.save(); ctx.translate(14 + lg, 16); ctx.rotate(-0.2); ctx.fillRect(0, -3, 34, 6); ctx.restore();
+    ctx.fillStyle = '#c8ccd2'; ctx.beginPath(); ctx.moveTo(44 + lg, 7); ctx.arc(44 + lg, 10, 9, -1.4, 1.4); ctx.fill(); // axe head
+    ctx.fillStyle = '#d9a982'; circle(ctx, 3, 0, 10);
+    ctx.fillStyle = '#e8c04a'; for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(3 + Math.cos(i * 0.6 + Math.PI) * 9, Math.sin(i * 0.6 + Math.PI) * 9, 3, 0, 6.29); ctx.fill(); }
+    ctx.fillStyle = '#8a5a2a'; ctx.beginPath(); ctx.arc(3, 0, 10, Math.PI * 0.6, Math.PI * 1.4); ctx.fill();
+  }
+  ctx.restore();
+  if (e.hp < e.maxHp) {
+    const w = e.r * 2.2;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(e.x - w / 2, e.y - e.r - 12, w, 4);
+    ctx.fillStyle = e.type === 'chief' ? '#e8b84a' : '#c8321e'; ctx.fillRect(e.x - w / 2, e.y - e.r - 12, w * Math.max(0, e.hp / e.maxHp), 4);
+  }
+}
+
+function bar(x, y, w, h, v, max, col, label) {
+  ctx.fillStyle = 'rgba(30,18,8,0.75)'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+  ctx.fillStyle = '#3a2a1a'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = col; ctx.fillRect(x, y, w * clamp(v / max, 0, 1), h);
+  ctx.fillStyle = '#fff6df'; ctx.font = 'bold 13px Georgia'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(label + '  ' + Math.max(0, Math.ceil(v)) + ' / ' + max, x + 8, y + h / 2 + 1);
+}
+
+function drawHUD() {
+  bar(20, 18, 240, 18, P.hp, P.maxHp, '#b8321e', 'Muhafız');
+  bar(20, 44, 240, 18, T.hp, T.maxHp, '#d9b04a', 'Tapınak');
+  // dash
+  ctx.fillStyle = 'rgba(30,18,8,0.75)'; ctx.fillRect(18, 68, 120, 12);
+  ctx.fillStyle = P.dashCd <= 0 ? '#e9d6a6' : '#7a6a4a'; ctx.fillRect(20, 70, 116 * clamp(1 - P.dashCd / 1.1, 0, 1), 8);
+  ctx.fillStyle = '#fff6df'; ctx.font = '11px Georgia'; ctx.textAlign = 'left'; ctx.fillText('Atılma', 144, 75);
+
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(30,18,8,0.75)'; ctx.fillRect(W - 230, 14, 212, 74);
+  ctx.fillStyle = '#fff6df'; ctx.font = 'bold 18px Georgia'; ctx.fillText('Dalga ' + wave, W - 30, 30);
+  ctx.font = '15px Georgia';
+  ctx.fillStyle = '#ffd34d'; ctx.fillText(gold + ' drahmi', W - 30, 53);
+  ctx.fillStyle = '#e8b84a'; circle(ctx, W - 132, 53, 7); ctx.fillStyle = '#a77a1e'; circle(ctx, W - 132, 53, 3.5);
+  ctx.fillStyle = '#bfe4ff'; ctx.fillText('⚡ ' + P.bolts + '   ·   kalan ' + (enemies.length + toSpawn.length), W - 30, 75);
+}
+
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#140d07'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const sx = shake ? rnd(-shake, shake) : 0, sy = shake ? rnd(-shake, shake) : 0;
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (offX + sx * scale), dpr * (offY + sy * scale));
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  ctx.drawImage(bg, 0, 0, W, H);
+  if (!P) { ctx.restore(); return; }
+
+  drawTemple();
+  for (const c of coins) {
+    const by = Math.sin(c.bob) * 2, r = c.val >= 10 ? 7 : 5;
+    if (c.life < 3 && Math.floor(c.life * 8) % 2) continue;
+    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ellipse(ctx, c.x, c.y + 5, r, r * .4);
+    ctx.fillStyle = '#e8b84a'; circle(ctx, c.x, c.y + by, r);
+    ctx.fillStyle = '#fff2b0'; circle(ctx, c.x - r * .3, c.y + by - r * .3, r * .35);
+  }
+  for (const p of parts) if (!p.fire) { ctx.globalAlpha = p.life / p.max; ctx.fillStyle = p.c; circle(ctx, p.x, p.y, p.s); }
+  ctx.globalAlpha = 1;
+  const drawables = [...enemies.map(e => [e.y, () => drawEnemy(e)]), [P.y, drawPlayer]].sort((a, b) => a[0] - b[0]);
+  drawables.forEach(d => d[1]());
+  for (const p of parts) if (p.fire) { ctx.globalAlpha = p.life / p.max; ctx.fillStyle = p.c; circle(ctx, p.x, p.y, p.s * (p.life / p.max)); }
+  ctx.globalAlpha = 1;
+  for (const s of spears) {
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.a);
+    ctx.strokeStyle = '#6e4a26'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(6, 0); ctx.stroke();
+    ctx.fillStyle = '#d6a64a'; ctx.beginPath(); ctx.moveTo(6, -3); ctx.lineTo(15, 0); ctx.lineTo(6, 3); ctx.fill();
+    ctx.restore();
+  }
+  for (const a of arrows) {
+    ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(a.a);
+    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(4, 0); ctx.stroke();
+    ctx.fillStyle = '#ccc'; ctx.beginPath(); ctx.moveTo(4, -2.5); ctx.lineTo(9, 0); ctx.lineTo(4, 2.5); ctx.fill();
+    ctx.fillStyle = '#e8e0d0'; ctx.fillRect(-15, -2, 4, 4);
+    ctx.restore();
+  }
+  if (boltFx) {
+    const k = boltFx.t / 0.45;
+    ctx.fillStyle = `rgba(255,255,230,${0.35 * k})`; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = `rgba(160,220,255,${k})`; ctx.lineWidth = 9; ctx.lineJoin = 'round';
+    ctx.beginPath(); boltFx.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,255,${k})`; ctx.lineWidth = 3; ctx.stroke();
+    ctx.strokeStyle = `rgba(255,240,150,${k})`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(boltFx.x, boltFx.y, boltFx.R * (1.2 - k * .4), 0, 6.29); ctx.stroke();
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const t of texts) { ctx.globalAlpha = Math.min(1, t.life * 2); ctx.font = 'bold 15px Georgia'; ctx.fillStyle = '#2a1a0c'; ctx.fillText(t.text, t.x + 1, t.y + 1); ctx.fillStyle = t.c; ctx.fillText(t.text, t.x, t.y); }
+  ctx.globalAlpha = 1;
+
+  // crosshair
+  if (state === 'play') {
+    ctx.strokeStyle = 'rgba(255,245,215,0.9)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 9, 0, 6.29); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mouse.x - 14, mouse.y); ctx.lineTo(mouse.x - 5, mouse.y); ctx.moveTo(mouse.x + 5, mouse.y); ctx.lineTo(mouse.x + 14, mouse.y);
+    ctx.moveTo(mouse.x, mouse.y - 14); ctx.lineTo(mouse.x, mouse.y - 5); ctx.moveTo(mouse.x, mouse.y + 5); ctx.lineTo(mouse.x, mouse.y + 14); ctx.stroke();
+  }
+  drawHUD();
+  if (banner) {
+    const a = Math.min(1, banner.t * 2);
+    ctx.globalAlpha = a; ctx.textAlign = 'center';
+    ctx.font = 'bold 54px Georgia'; ctx.fillStyle = '#2a1a0c'; ctx.fillText(banner.text, W / 2 + 3, 160 + 3);
+    ctx.fillStyle = '#f6e3b0'; ctx.fillText(banner.text, W / 2, 160);
+    if (banner.sub) { ctx.font = 'italic 22px Georgia'; ctx.fillStyle = '#ffd34d'; ctx.fillText(banner.sub, W / 2, 205); }
+    ctx.globalAlpha = 1;
+  }
+  if (state === 'paused') {
+    ctx.fillStyle = 'rgba(20,12,5,0.6)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#f6e3b0'; ctx.font = 'bold 48px Georgia'; ctx.fillText('Duraklatıldı', W / 2, H / 2 - 10);
+    ctx.font = '18px Georgia'; ctx.fillText('Devam etmek için P veya Esc', W / 2, H / 2 + 34);
+  }
+  ctx.restore();
+}
+
+// ---------- UI ----------
+const $ = id => document.getElementById(id);
+const show = id => $(id).classList.remove('hidden');
+const hide = id => $(id).classList.add('hidden');
+
+function openShop() {
+  state = 'shop'; mouse.down = false;
+  $('shopTitle').textContent = 'Agora · Dalga ' + wave + ' tamamlandı';
+  renderShop(); show('shop');
+}
+function renderShop() {
+  $('shopGold').textContent = gold + ' drahmi';
+  const box = $('items'); box.innerHTML = '';
+  for (const u of UPGRADES) {
+    const l = lvl[u.id] || 0, c = costOf(u), maxed = l >= u.max;
+    const full = (u.id === 'repair' && T.hp >= T.maxHp);
+    const b = document.createElement('button'); b.className = 'item';
+    b.disabled = maxed || gold < c || full;
+    const lvTxt = u.max >= 99 ? (u.id === 'bolt' ? 'Hak: ' + P.bolts : 'Tapınak: ' + Math.ceil(T.hp) + '/' + T.maxHp) : 'Seviye ' + l + '/' + u.max;
+    b.innerHTML = `<b>${u.name}</b><small>${u.desc}</small><div class="row"><span>${lvTxt}</span><span class="cost">${maxed ? 'EN ÜST' : c + ' ₯'}</span></div>`;
+    b.onclick = () => { if (gold < c) return; gold -= c; lvl[u.id] = l + 1; u.apply(); snd(880, 0.1, 'triangle', 0.04, 200); renderShop(); };
+    box.appendChild(b);
+  }
+}
+function gameOver() {
+  state = 'over'; mouse.down = false;
+  const best = Math.max(+(store.get('tm_best') || 0), wave);
+  store.set('tm_best', best);
+  $('overTitle').textContent = P.hp <= 0 ? 'Muhafız Düştü' : 'Tapınak Yağmalandı';
+  $('overText').innerHTML = `<b>${wave}.</b> dalgaya kadar dayandın ve <b>${score}</b> şan puanı topladın.<br>En iyi rekorun: <b>${best}. dalga</b>`;
+  noise(1, 0.15); snd(200, 1, 'sawtooth', 0.05, -150);
+  show('over');
+}
+
+$('startBtn').onclick = () => { initAudio(); newGame(); };
+$('againBtn').onclick = () => { initAudio(); newGame(); };
+$('nextBtn').onclick = () => startWave();
+
+// ---------- loop ----------
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (state === 'play') update(dt);
+  cv.style.cursor = state === 'play' ? 'none' : 'default';
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
